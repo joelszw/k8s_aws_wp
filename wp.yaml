@@ -1,9 +1,24 @@
+apiVersion: v1
+kind: PersistentVolume
+metadata:
+  name: efs-pv
+spec:
+  capacity:
+    storage: 30Gi
+  volumeMode: Filesystem
+  accessModes:
+    - ReadWriteMany
+  persistentVolumeReclaimPolicy: Retain
+  nfs:
+    server: (dirección EFS) # Aqui va la dirección del EFS
+    path: /html/ # Aqui va la carpeta dentro del EFS
+---
 apiVersion: apps/v1
 kind: Deployment
 metadata:
   name: wordpress-deployment
 spec:
-  replicas: 1
+  replicas: 4 # Cantidad de replicas
   selector:
     matchLabels:
       app: wordpress
@@ -14,12 +29,12 @@ spec:
     spec:
       containers:
         - name: wordpress
-          image: wordpress:php8.1-apache
+          image: wordpress:php8.1-apache # Utilizo como contenedor base WP con Apache 8.1
           ports:
             - containerPort: 80
           env:
             - name: WORDPRESS_DB_HOST
-              value: (direccion RDS):(puerto RDS)
+              value: (direccion RDS):(puerto RDS) # Aqui va la dirección del rds con el puerto 3306
             - name: WORDPRESS_DB_USER
               valueFrom:
                 secretKeyRef:
@@ -38,11 +53,17 @@ spec:
           volumeMounts:
             - name: wordpress-persistent-storage
               mountPath: /var/www/html
+          resources:
+            requests: # Aqui le pongo los limites
+              memory: "256Mi"
+              cpu: "0.5"
+            limits:
+              memory: "512Mi"
+              cpu: "1"
       volumes:
         - name: wordpress-persistent-storage
-          nfs:
-            server: (dirección EFS)
-            path: /html/
+          persistentVolumeClaim:
+            claimName: efs-claim
 ---
 apiVersion: v1
 kind: Service
@@ -55,5 +76,19 @@ spec:
     - protocol: TCP
       port: 80
       targetPort: 80
+  type: ClusterIP # Aqui utilizo el tipo para el balanceador de cargas interno entre pods
   externalIPs:
     - (dirección interna de AWS de la instancia master)
+---
+kind: PersistentVolumeClaim
+apiVersion: v1
+metadata:
+  name: efs-claim
+spec:
+  accessModes:
+    - ReadWriteMany
+  storageClassName: ""
+  resources:
+    requests:
+      storage: 30Gi
+  volumeName: efs-pv
